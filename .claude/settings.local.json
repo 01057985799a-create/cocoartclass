@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "PowerShell(Stop-Process *)",
+      "Bash(node -e ' *)",
+      "Bash(node _tmp-test-anthropic.mjs)",
+      "Bash(curl *)",
+      "Bash(python3 -c ' *)",
+      "Bash(node *)",
+      "Bash(git commit *)",
+      "Bash(git config *)",
+      "Bash(git add *)"
+    ]
+  }
+}
