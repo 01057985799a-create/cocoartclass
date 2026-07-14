@@ -2,14 +2,11 @@ import Anthropic from "@anthropic-ai/sdk";
 
 export const runtime = "nodejs";
 
-console.log("API KEY EXISTS:", !!process.env.ANTHROPIC_API_KEY);
-console.log("API KEY LENGTH:", process.env.ANTHROPIC_API_KEY?.length);
-
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY!,
 });
 
-const MODEL = "claude-opus-4-8";
+const MODEL = process.env.ANTHROPIC_MODEL || "claude-opus-4-8";
 
 const LANGUAGE_INSTRUCTION =
   "모든 응답은 반드시 자연스럽고 현대적인 한국어로만 작성하세요. 중국어, 일본어, 한자를 절대 사용하지 마세요. 순수 한글 문장으로 작성하고, 필요한 경우에만 영어로 된 재료명 등 고유명사를 사용할 수 있습니다.";
@@ -155,7 +152,12 @@ function extractJsonText(message: Anthropic.Message): string {
   if (!textBlock) {
     throw new Error("Claude response did not include a text block");
   }
-  return textBlock.text;
+  const text = textBlock.text.trim();
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fenced) return fenced[1].trim();
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  return start >= 0 && end > start ? text.slice(start, end + 1) : text;
 }
 
 async function runImageAnalysis(
@@ -167,12 +169,7 @@ async function runImageAnalysis(
     .stream({
       model: MODEL,
       max_tokens: 4096,
-      thinking: { type: "adaptive" },
-      output_config: {
-        effort: "high",
-        format: { type: "json_schema", schema: IMAGE_ANALYSIS_SCHEMA },
-      },
-      system: `당신은 한국 미술 학원의 수업 준비를 돕는 보조 AI입니다. ${LANGUAGE_INSTRUCTION}`,
+      system: `당신은 한국 미술 학원의 수업 준비를 돕는 보조 AI입니다. ${LANGUAGE_INSTRUCTION} Return only valid JSON with this JSON Schema: ${JSON.stringify(IMAGE_ANALYSIS_SCHEMA)}`,
       messages: [
         {
           role: "user",
@@ -221,12 +218,7 @@ async function runPlanGeneration(params: {
     .stream({
       model: MODEL,
       max_tokens: 12000,
-      thinking: { type: "adaptive" },
-      output_config: {
-        effort: "high",
-        format: { type: "json_schema", schema: PLAN_SCHEMA },
-      },
-      system: `당신은 한국 미술 학원의 수업 계획안을 작성하는 보조 AI입니다. ${LANGUAGE_INSTRUCTION}`,
+      system: `당신은 한국 미술 학원의 수업 계획안을 작성하는 보조 AI입니다. ${LANGUAGE_INSTRUCTION} Return only valid JSON with this JSON Schema: ${JSON.stringify(PLAN_SCHEMA)}`,
       messages: [
         {
           role: "user",
@@ -279,14 +271,6 @@ export async function POST(request: Request) {
 
   (async () => {
     try {
-      // TEMP DEBUG: requested diagnostic — remove after confirming.
-      console.log(
-        "[DEBUG] ANTHROPIC_API_KEY prefix:",
-        process.env.ANTHROPIC_API_KEY?.slice(0, 20)
-      );
-      console.log("[DEBUG] ANTHROPIC_API_KEY length:", process.env.ANTHROPIC_API_KEY?.length);
-      console.log("[DEBUG] model:", MODEL);
-
       const formData = await request.formData();
       const ageGroup = String(formData.get("ageGroup") ?? "");
       const subject = String(formData.get("subject") ?? "");
@@ -328,28 +312,9 @@ export async function POST(request: Request) {
     } catch (error) {
       console.error("Lesson plan generation failed:", error);
 
-      // TEMP DEBUG: forwarding full error detail to the client console for
-      // diagnosis. Remove/scope down once the underlying issue is fixed.
-      let debug: unknown;
-      if (error instanceof Anthropic.APIError) {
-        debug = {
-          type: "AnthropicAPIError",
-          status: error.status,
-          errorType: error.type,
-          requestID: error.requestID,
-          message: error.message,
-          body: error.error,
-        };
-      } else if (error instanceof Error) {
-        debug = { type: "Error", message: error.message, stack: error.stack };
-      } else {
-        debug = { type: "Unknown", value: String(error) };
-      }
-
       write({
         type: "error",
         message: "AI 분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.",
-        debug,
       });
     } finally {
       controllerRef.close();
