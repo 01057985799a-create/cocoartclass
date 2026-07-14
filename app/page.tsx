@@ -232,7 +232,7 @@ function wrapCanvasText(
   return cursorY + lineHeight;
 }
 
-function downloadPlanImage(plan: LessonPlanResult) {
+async function downloadPlanImage(plan: LessonPlanResult) {
   const width = 1240;
   const padding = 80;
   const canvas = document.createElement("canvas");
@@ -285,10 +285,45 @@ function downloadPlanImage(plan: LessonPlanResult) {
   context.font = "23px Arial, sans-serif";
   wrapCanvasText(context, plan.parent_summary, padding + 30, y + 85, width - padding * 2 - 60, 34);
 
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+  if (!blob) throw new Error("PNG image creation failed");
+  const fileName = `${plan.title.replace(/[\\/:*?"<>|]/g, "_") || "수업계획안"}.png`;
+  const file = new File([blob], fileName, { type: "image/png" });
+  if (navigator.share && navigator.canShare?.({ files: [file] })) {
+    await navigator.share({ files: [file], title: plan.title });
+    return;
+  }
+  const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
-  link.download = `${plan.title.replace(/[\\/:*?"<>|]/g, "_") || "수업계획안"}.png`;
-  link.href = canvas.toDataURL("image/png");
+  link.download = fileName;
+  link.href = url;
+  link.style.display = "none";
+  document.body.appendChild(link);
   link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
+
+async function copyTextWithFallback(text: string) {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Some mobile in-app browsers expose Clipboard API but block writes.
+    }
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.select();
+  textarea.setSelectionRange(0, textarea.value.length);
+  const copied = document.execCommand("copy");
+  textarea.remove();
+  if (!copied) throw new Error("Clipboard copy failed");
 }
 
 export default function Home() {
@@ -307,6 +342,7 @@ export default function Home() {
   const [generationError, setGenerationError] = useState("");
   const [generatedPlan, setGeneratedPlan] = useState<LessonPlanResult | null>(null);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied">("idle");
+  const [imageExportStatus, setImageExportStatus] = useState<"idle" | "working">("idle");
   const [savedPlans, setSavedPlans] = useState<SavedPlanRow[]>([]);
   const [savedPlansLoading, setSavedPlansLoading] = useState(true);
   const [savedPlanSearch, setSavedPlanSearch] = useState("");
@@ -640,11 +676,26 @@ export default function Home() {
   const handleCopyAll = async () => {
     if (!generatedPlan) return;
     try {
-      await navigator.clipboard.writeText(buildPlainTextSummary(generatedPlan));
+      await copyTextWithFallback(buildPlainTextSummary(generatedPlan));
       setCopyStatus("copied");
       setTimeout(() => setCopyStatus("idle"), 2000);
     } catch {
       setGenerationError("클립보드 복사에 실패했습니다.");
+    }
+  };
+
+  const handleDownloadImage = async () => {
+    if (!generatedPlan || imageExportStatus === "working") return;
+    setImageExportStatus("working");
+    setGenerationError("");
+    try {
+      await downloadPlanImage(generatedPlan);
+    } catch (error) {
+      if ((error as DOMException)?.name !== "AbortError") {
+        setGenerationError("이미지 저장 창을 열지 못했습니다. 다시 시도해주세요.");
+      }
+    } finally {
+      setImageExportStatus("idle");
     }
   };
 
@@ -882,22 +933,23 @@ export default function Home() {
 
           {generatedPlan && (
             <section id="generated-plan" className="scroll-mt-24 flex flex-col gap-6 border-t border-zinc-100 pt-8">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <h2 className="text-lg font-semibold text-zinc-900">
                   생성된 수업 계획안
                 </h2>
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={() => downloadPlanImage(generatedPlan)}
-                    className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-bold text-white transition-colors hover:bg-blue-700"
+                    onClick={() => void handleDownloadImage()}
+                    disabled={imageExportStatus === "working"}
+                    className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-bold text-white transition-colors hover:bg-blue-700 disabled:opacity-60"
                   >
-                    이미지 계획안 PNG
+                    {imageExportStatus === "working" ? "이미지 만드는 중..." : "이미지 계획안 PNG"}
                   </button>
                   <button
                     type="button"
                     onClick={handleCopyAll}
-                    className="rounded-lg border border-blue-200 px-3 py-1.5 text-sm font-medium text-blue-600 transition-colors hover:bg-blue-50"
+                    className="rounded-lg border border-blue-200 px-3 py-2 text-sm font-medium text-blue-600 transition-colors hover:bg-blue-50"
                   >
                     {copyStatus === "copied" ? "복사됨!" : "전체 복사"}
                   </button>
