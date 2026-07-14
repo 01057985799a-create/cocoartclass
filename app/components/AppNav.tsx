@@ -12,6 +12,7 @@ const items = [
   { href: "/students", label: "학생 관리", icon: "👧" },
   { href: "/feedback", label: "학생 피드백", icon: "💬" },
   { href: "/finance", label: "재무 관리", icon: "💰" },
+  { href: "/downloads", label: "자료 저장", icon: "📥" },
 ];
 
 export default function AppNav() {
