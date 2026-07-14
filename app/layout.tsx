@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import AppNav from "./components/AppNav";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -13,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "미술수업 AI",
-  description: "이미지 분석으로 미술 수업 계획안을 자동 생성합니다.",
+  title: "코코미술학원 AI",
+  description: "코코미술학원 수업과 학생 관리 도구",
 };
 
 export default function RootLayout({
@@ -24,10 +25,13 @@ export default function RootLayout({
 }>) {
   return (
     <html
-      lang="en"
+      lang="ko"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        <AppNav />
+        {children}
+      </body>
     </html>
   );
 }
