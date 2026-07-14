@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase";
 const items = [
   { href: "/", label: "수업 계획안", icon: "🎨" },
   { href: "/students", label: "학생 관리", icon: "👧" },
+  { href: "/finance", label: "재무 관리", icon: "💰" },
 ];
 
 export default function AppNav() {
