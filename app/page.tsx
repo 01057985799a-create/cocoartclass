@@ -211,29 +211,21 @@ function buildPlainTextSummary(plan: LessonPlanResult): string {
   return lines.join("\n");
 }
 
-function wrapCanvasText(
-  context: CanvasRenderingContext2D,
-  text: string,
-  x: number,
-  y: number,
-  maxWidth: number,
-  lineHeight: number
-): number {
-  const words = text.split(/\s+/);
-  let line = "";
-  let cursorY = y;
-  for (const word of words) {
-    const test = line ? `${line} ${word}` : word;
-    if (context.measureText(test).width > maxWidth && line) {
-      context.fillText(line, x, cursorY);
-      line = word;
-      cursorY += lineHeight;
-    } else {
-      line = test;
-    }
+function canvasTextLines(context: CanvasRenderingContext2D, text: string, maxWidth: number) {
+  const lines: string[] = [];
+  for (const paragraph of text.split("\n")) {
+    const words = paragraph.trim().split(/\s+/).filter(Boolean); let line = "";
+    for (const word of words) { const test = line ? `${line} ${word}` : word; if (context.measureText(test).width > maxWidth && line) { lines.push(line); line = word; } else line = test; }
+    if (line) lines.push(line);
   }
-  if (line) context.fillText(line, x, cursorY);
-  return cursorY + lineHeight;
+  return lines;
+}
+
+function drawFittedText(context: CanvasRenderingContext2D, text: string, x: number, y: number, maxWidth: number, maxHeight: number, options?: {maxFont?:number;minFont?:number;bold?:boolean;color?:string}) {
+  const maxFont=options?.maxFont??24; const minFont=options?.minFont??14; const weight=options?.bold?"700":"400"; let fontSize=maxFont; let lines:string[]=[]; let lineHeight=fontSize*1.3;
+  while(fontSize>=minFont){context.font=`${weight} ${fontSize}px Arial, sans-serif`;lineHeight=fontSize*1.3;lines=canvasTextLines(context,text,maxWidth);if(lines.length<=Math.floor(maxHeight/lineHeight))break;fontSize-=1;}
+  const maxLines=Math.max(1,Math.floor(maxHeight/lineHeight));if(lines.length>maxLines){lines=lines.slice(0,maxLines);let last=lines[maxLines-1];while(last.length>1&&context.measureText(`${last}…`).width>maxWidth)last=last.slice(0,-1);lines[maxLines-1]=`${last.trim()}…`;}
+  context.fillStyle=options?.color??"#27272a";context.textBaseline="top";lines.forEach((line,index)=>context.fillText(line,x,y+index*lineHeight));context.textBaseline="alphabetic";
 }
 
 async function loadCanvasImage(source: string): Promise<HTMLImageElement> {
@@ -257,8 +249,7 @@ function drawCoverImage(context: CanvasRenderingContext2D, image: HTMLImageEleme
 function drawInfoBox(context: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, color: string, icon: string, title: string, lines: string[]) {
   context.fillStyle = "#ffffff"; context.strokeStyle = color; context.lineWidth = 2; context.beginPath(); context.roundRect(x, y, width, height, 20); context.fill(); context.stroke();
   context.fillStyle = color; context.font = "700 30px Arial, sans-serif"; context.fillText(`${icon}  ${title}`, x + 22, y + 42);
-  context.fillStyle = "#27272a"; context.font = "21px Arial, sans-serif"; let lineY = y + 78;
-  for (const line of lines) { lineY = wrapCanvasText(context, line, x + 22, lineY, width - 44, 30); if (lineY > y + height - 18) break; }
+  drawFittedText(context, lines.join("\n"), x + 22, y + 68, width - 44, height - 84, {maxFont:21,minFont:15});
 }
 
 async function downloadPlanImage(plan: LessonPlanResult, imageSources: string[], meta: PlanExportMeta) {
@@ -272,8 +263,8 @@ async function downloadPlanImage(plan: LessonPlanResult, imageSources: string[],
   const loadedImages = (await Promise.all(imageSources.slice(0, 7).map(source => loadCanvasImage(source).catch(() => null)))).filter((image): image is HTMLImageElement => image !== null);
   context.fillStyle = "#fffdfa"; context.fillRect(0, 0, width, height); context.strokeStyle = "#fb7185"; context.lineWidth = 3; context.beginPath(); context.roundRect(15, 15, width - 30, height - 30, 28); context.stroke();
   context.fillStyle = "#fb4f7b"; context.beginPath(); context.roundRect(34, 34, 158, 54, 27); context.fill(); context.fillStyle = "#ffffff"; context.font = "700 28px Arial, sans-serif"; context.fillText("수업제목", 58, 70);
-  context.fillStyle = "#18181b"; context.font = "700 55px Arial, sans-serif"; wrapCanvasText(context, plan.title, 215, 75, 980, 62);
-  context.fillStyle = "#3f3f46"; context.font = "25px Arial, sans-serif"; wrapCanvasText(context, plan.objective, 45, 155, 1150, 34);
+  drawFittedText(context, plan.title, 215, 32, 980, 112, {maxFont:55,minFont:32,bold:true,color:"#18181b"});
+  drawFittedText(context, plan.objective, 45, 145, 1150, 50, {maxFont:25,minFont:18,color:"#3f3f46"});
 
   drawInfoBox(context, 28, 205, 350, 120, "#2563eb", "👥", "대상", [meta.ageGroup || "대상 연령"]);
   drawInfoBox(context, 28, 340, 350, 120, "#f43f5e", "◷", "차시", [`${plan.sessions.length}차시 (${meta.durationMinutes}분)`]);
@@ -289,8 +280,8 @@ async function downloadPlanImage(plan: LessonPlanResult, imageSources: string[],
 
   context.fillStyle = "#c49a6c"; context.beginPath(); context.roundRect(650, 830, 310, 52, 26); context.fill(); context.fillStyle = "#ffffff"; context.font = "700 29px Arial, sans-serif"; context.fillText("만드는 순서", 730, 866);
   const stepTexts = [firstSession?.intro, firstSession?.main_activity, firstSession?.wrap_up, firstSession?.student_choice_elements, firstSession?.support_for_struggling_students, firstSession?.extra_activity_for_fast_finishers].filter(Boolean) as string[];
-  for (let index = 0; index < 6; index++) { const column=index%3; const row=Math.floor(index/3); const x=410+column*265; const y=900+row*330; context.fillStyle="#ffffff";context.strokeStyle="#ead8c5";context.beginPath();context.roundRect(x,y,245,300,18);context.fill();context.stroke();const stepImage=loadedImages[index+1]||loadedImages[0];if(stepImage)drawCoverImage(context,stepImage,x+10,y+10,225,180,12);context.fillStyle="#fb4f7b";context.beginPath();context.arc(x+30,y+30,24,0,Math.PI*2);context.fill();context.fillStyle="#ffffff";context.font="700 24px Arial, sans-serif";context.fillText(String(index+1),x+23,y+39);context.fillStyle="#27272a";context.font="19px Arial, sans-serif";wrapCanvasText(context,stepTexts[index]||`${index+1}단계 작품 과정을 진행해요.`,x+14,y+215,217,26); }
-  context.fillStyle="#fff1f2";context.strokeStyle="#fda4af";context.beginPath();context.roundRect(410,1575,790,130,20);context.fill();context.stroke();context.fillStyle="#be123c";context.font="700 27px Arial, sans-serif";context.fillText("핵심 포인트!",435,1615);context.fillStyle="#3f3f46";context.font="20px Arial, sans-serif";wrapCanvasText(context,firstSession?.student_choice_elements||plan.parent_summary,435,1650,735,27);
+  for (let index = 0; index < 6; index++) { const column=index%3; const row=Math.floor(index/3); const x=410+column*265; const y=900+row*330; context.fillStyle="#ffffff";context.strokeStyle="#ead8c5";context.beginPath();context.roundRect(x,y,245,300,18);context.fill();context.stroke();const stepImage=loadedImages[index+1]||loadedImages[0];if(stepImage)drawCoverImage(context,stepImage,x+10,y+10,225,180,12);context.fillStyle="#fb4f7b";context.beginPath();context.arc(x+30,y+30,24,0,Math.PI*2);context.fill();context.fillStyle="#ffffff";context.font="700 24px Arial, sans-serif";context.fillText(String(index+1),x+23,y+39);drawFittedText(context,stepTexts[index]||`${index+1}단계 작품 과정을 진행해요.`,x+14,y+205,217,82,{maxFont:18,minFont:13,color:"#27272a"}); }
+  context.fillStyle="#fff1f2";context.strokeStyle="#fda4af";context.beginPath();context.roundRect(410,1575,790,130,20);context.fill();context.stroke();context.fillStyle="#be123c";context.font="700 27px Arial, sans-serif";context.fillText("핵심 포인트!",435,1615);drawFittedText(context,firstSession?.student_choice_elements||plan.parent_summary,435,1632,735,60,{maxFont:20,minFont:14,color:"#3f3f46"});
 
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
   if (!blob) throw new Error("PNG image creation failed");
