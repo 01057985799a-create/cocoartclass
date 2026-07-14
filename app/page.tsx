@@ -309,6 +309,10 @@ export default function Home() {
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied">("idle");
   const [savedPlans, setSavedPlans] = useState<SavedPlanRow[]>([]);
   const [savedPlansLoading, setSavedPlansLoading] = useState(true);
+  const [savedPlanSearch, setSavedPlanSearch] = useState("");
+  const [selectedSavedPlanId, setSelectedSavedPlanId] = useState<string | null>(null);
+  const [deletingSavedPlanId, setDeletingSavedPlanId] = useState<string | null>(null);
+  const [savedPlansError, setSavedPlansError] = useState("");
 
   const loadSavedPlans = async () => {
     const { data, error } = await supabase
@@ -317,8 +321,41 @@ export default function Home() {
       .eq("status", "generated")
       .order("created_at", { ascending: false })
       .limit(30);
-    if (!error) setSavedPlans((data ?? []) as SavedPlanRow[]);
+    if (error) setSavedPlansError("저장된 계획안을 불러오지 못했습니다.");
+    else {
+      setSavedPlans((data ?? []) as SavedPlanRow[]);
+      setSavedPlansError("");
+    }
     setSavedPlansLoading(false);
+  };
+
+  const visibleSavedPlans = savedPlans.filter((plan) =>
+    [plan.title, plan.target_age, plan.class_type]
+      .filter(Boolean)
+      .some((value) => value!.toLocaleLowerCase("ko").includes(savedPlanSearch.trim().toLocaleLowerCase("ko"))),
+  );
+
+  const openSavedPlan = (plan: SavedPlanRow) => {
+    if (!plan.generated_plan) return;
+    setGeneratedPlan(plan.generated_plan);
+    setSelectedSavedPlanId(plan.id);
+    window.setTimeout(() => document.getElementById("generated-plan")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+  };
+
+  const deleteSavedPlan = async (plan: SavedPlanRow) => {
+    if (!window.confirm(`“${plan.title || "제목 없는 계획안"}”을 삭제할까요?\n삭제한 계획안은 복구할 수 없습니다.`)) return;
+    setDeletingSavedPlanId(plan.id);
+    setSavedPlansError("");
+    const { error } = await supabase.from("lesson_plans").delete().eq("id", plan.id);
+    if (error) setSavedPlansError("계획안을 삭제하지 못했습니다. 잠시 후 다시 시도해주세요.");
+    else {
+      setSavedPlans((current) => current.filter((item) => item.id !== plan.id));
+      if (selectedSavedPlanId === plan.id) {
+        setSelectedSavedPlanId(null);
+        setGeneratedPlan(null);
+      }
+    }
+    setDeletingSavedPlanId(null);
   };
 
   useEffect(() => {
@@ -542,6 +579,7 @@ export default function Home() {
       if (saveError) throw new SaveError("lesson_plans final update failed", saveError);
 
       setGeneratedPlan(finalResult);
+      setSelectedSavedPlanId(lessonPlanId);
       await loadSavedPlans();
     } catch (err) {
       console.error("=== FULL ERROR ===");
@@ -632,23 +670,39 @@ export default function Home() {
               {savedPlans.length}개
             </span>
           </div>
+          {!savedPlansLoading && savedPlans.length > 0 && (
+            <label className="mt-4 block">
+              <span className="sr-only">저장된 계획안 검색</span>
+              <input
+                type="search"
+                value={savedPlanSearch}
+                onChange={(event) => setSavedPlanSearch(event.target.value)}
+                placeholder="제목, 연령, 수업 유형으로 검색"
+                className="w-full rounded-xl border border-zinc-200 px-4 py-3 text-sm outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+              />
+            </label>
+          )}
+          {savedPlansError && <p className="mt-3 rounded-xl bg-red-50 p-3 text-sm text-red-700">{savedPlansError}</p>}
           {savedPlansLoading ? (
             <p className="mt-4 text-sm text-zinc-400">불러오는 중...</p>
           ) : savedPlans.length === 0 ? (
             <p className="mt-4 rounded-xl bg-zinc-50 p-4 text-sm text-zinc-500">아직 저장된 계획안이 없습니다.</p>
+          ) : visibleSavedPlans.length === 0 ? (
+            <p className="mt-4 rounded-xl bg-zinc-50 p-4 text-sm text-zinc-500">검색 결과가 없습니다.</p>
           ) : (
-            <div className="mt-4 flex gap-3 overflow-x-auto pb-2">
-              {savedPlans.map((plan) => (
-                <button
-                  key={plan.id}
-                  type="button"
-                  onClick={() => plan.generated_plan && setGeneratedPlan(plan.generated_plan)}
-                  className="min-w-56 rounded-xl border border-zinc-200 p-4 text-left transition hover:border-blue-300 hover:bg-blue-50"
-                >
-                  <span className="line-clamp-2 text-sm font-bold text-zinc-900">{plan.title || "제목 없는 계획안"}</span>
-                  <span className="mt-2 block text-xs text-zinc-500">{plan.target_age} · {plan.class_type}</span>
-                  <span className="mt-1 block text-xs text-zinc-400">{new Date(plan.created_at).toLocaleDateString("ko-KR")}</span>
-                </button>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {visibleSavedPlans.map((plan) => (
+                <article key={plan.id} className={`rounded-xl border p-4 transition ${selectedSavedPlanId === plan.id ? "border-blue-400 bg-blue-50 ring-2 ring-blue-100" : "border-zinc-200"}`}>
+                  <button type="button" onClick={() => openSavedPlan(plan)} className="w-full text-left disabled:cursor-not-allowed disabled:opacity-50" disabled={!plan.generated_plan}>
+                    <span className="line-clamp-2 text-sm font-bold text-zinc-900">{plan.title || "제목 없는 계획안"}</span>
+                    <span className="mt-2 block text-xs text-zinc-500">{plan.target_age || "연령 미입력"} · {plan.class_type || "유형 미입력"}</span>
+                    <span className="mt-1 block text-xs text-zinc-400">{new Date(plan.created_at).toLocaleDateString("ko-KR")}</span>
+                  </button>
+                  <div className="mt-3 flex items-center justify-between border-t border-zinc-200/80 pt-3">
+                    <button type="button" onClick={() => openSavedPlan(plan)} disabled={!plan.generated_plan} className="text-xs font-bold text-blue-600 disabled:text-zinc-400">열기</button>
+                    <button type="button" onClick={() => void deleteSavedPlan(plan)} disabled={deletingSavedPlanId === plan.id} className="text-xs font-bold text-red-600 disabled:text-zinc-400">{deletingSavedPlanId === plan.id ? "삭제 중..." : "삭제"}</button>
+                  </div>
+                </article>
               ))}
             </div>
           )}
@@ -827,7 +881,7 @@ export default function Home() {
           </button>
 
           {generatedPlan && (
-            <section className="flex flex-col gap-6 border-t border-zinc-100 pt-8">
+            <section id="generated-plan" className="scroll-mt-24 flex flex-col gap-6 border-t border-zinc-100 pt-8">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-zinc-900">
                   생성된 수업 계획안
