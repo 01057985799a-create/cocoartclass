@@ -11,6 +11,7 @@ const items = [
   { href: "/", label: "수업 계획안", icon: "🎨" },
   { href: "/students", label: "학생 관리", icon: "👧" },
   { href: "/feedback", label: "학생 피드백", icon: "💬" },
+  { href: "/artwork-analysis", label: "그림 분석", icon: "🖼️" },
   { href: "/finance", label: "재무 관리", icon: "💰" },
   { href: "/downloads", label: "자료 저장", icon: "📥" },
 ];
