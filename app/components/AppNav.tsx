@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { supabase } from "@/lib/supabase";
 
 const items = [
   { href: "/", label: "수업 계획안", icon: "🎨" },
@@ -17,7 +18,7 @@ export default function AppNav() {
         <Link href="/" className="shrink-0 font-bold text-emerald-700">
           COCO AI
         </Link>
-        <div className="flex gap-1 rounded-xl bg-emerald-50 p-1">
+        <div className="flex items-center gap-1 rounded-xl bg-emerald-50 p-1">
           {items.map((item) => {
             const active =
               item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
@@ -36,6 +37,13 @@ export default function AppNav() {
               </Link>
             );
           })}
+          <button
+            type="button"
+            onClick={() => void supabase.auth.signOut()}
+            className="rounded-lg px-2 py-2 text-xs font-semibold text-zinc-400 hover:text-red-600 sm:px-3"
+          >
+            로그아웃
+          </button>
         </div>
       </div>
     </nav>
