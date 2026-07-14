@@ -123,6 +123,42 @@ function buildStorageFileName(order: number, file: File): string {
   return `${order}_${Date.now()}.${getFileExtension(file)}`;
 }
 
+// Vercel rejects function request bodies that are too large. Keep the
+// original file in Supabase Storage, but send a compact analysis copy to AI.
+async function compressForAnalysis(file: File, imageCount: number): Promise<File> {
+  const bitmap = await createImageBitmap(file);
+  const longest = Math.max(bitmap.width, bitmap.height);
+  const scale = Math.min(1, 1200 / longest);
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  const context = canvas.getContext("2d");
+  if (!context) {
+    bitmap.close();
+    return file;
+  }
+  context.fillStyle = "#ffffff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+
+  const budget = Math.max(180_000, Math.floor(3_200_000 / imageCount));
+  let quality = 0.72;
+  let blob: Blob | null = null;
+  do {
+    blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", quality)
+    );
+    quality -= 0.1;
+  } while (blob && blob.size > budget && quality >= 0.32);
+
+  if (!blob) return file;
+  return new File([blob], file.name.replace(/\.[^.]+$/, ".jpg"), {
+    type: "image/jpeg",
+    lastModified: file.lastModified,
+  });
+}
+
 function parseDurationMinutes(label: string): number {
   const match = label.match(/\d+/);
   return match ? parseInt(match[0], 10) : 60;
@@ -331,8 +367,13 @@ export default function Home() {
       generateFormData.append("durationLabel", duration);
       generateFormData.append("sessionCountLabel", sessionCount);
       generateFormData.append("requestText", requestText);
-      referenceImages.forEach((image) => {
-        generateFormData.append("images", image.file, image.file.name);
+      const analysisFiles = await Promise.all(
+        referenceImages.map((image) =>
+          compressForAnalysis(image.file, referenceImages.length)
+        )
+      );
+      analysisFiles.forEach((file) => {
+        generateFormData.append("images", file, file.name);
       });
 
       const response = await fetch("/api/lesson-plans/generate", {
