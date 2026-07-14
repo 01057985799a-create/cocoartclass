@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 
 const items = [
   { href: "/today", label: "오늘 수업", icon: "🏠" },
+  { href: "/attendance", label: "출결·보강", icon: "✅" },
   { href: "/", label: "수업 계획안", icon: "🎨" },
   { href: "/students", label: "학생 관리", icon: "👧" },
   { href: "/feedback", label: "학생 피드백", icon: "💬" },
