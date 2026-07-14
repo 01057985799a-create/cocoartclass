@@ -81,9 +81,13 @@ type SavedPlanRow = {
   title: string | null;
   target_age: string | null;
   class_type: string | null;
+  class_minutes: number | null;
+  session_count: number | null;
   generated_plan: LessonPlanResult | null;
   created_at: string;
 };
+
+type PlanExportMeta = { ageGroup: string; subject: string; durationMinutes: number };
 
 class UploadError extends Error {
   details?: unknown;
@@ -232,58 +236,61 @@ function wrapCanvasText(
   return cursorY + lineHeight;
 }
 
-async function downloadPlanImage(plan: LessonPlanResult) {
+async function loadCanvasImage(source: string): Promise<HTMLImageElement> {
+  return await new Promise((resolve, reject) => {
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Image load failed"));
+    image.src = source;
+  });
+}
+
+function drawCoverImage(context: CanvasRenderingContext2D, image: HTMLImageElement, x: number, y: number, width: number, height: number, radius = 22) {
+  const scale = Math.max(width / image.naturalWidth, height / image.naturalHeight);
+  const sourceWidth = width / scale; const sourceHeight = height / scale;
+  const sourceX = (image.naturalWidth - sourceWidth) / 2; const sourceY = (image.naturalHeight - sourceHeight) / 2;
+  context.save(); context.beginPath(); context.roundRect(x, y, width, height, radius); context.clip();
+  context.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, x, y, width, height); context.restore();
+}
+
+function drawInfoBox(context: CanvasRenderingContext2D, x: number, y: number, width: number, height: number, color: string, icon: string, title: string, lines: string[]) {
+  context.fillStyle = "#ffffff"; context.strokeStyle = color; context.lineWidth = 2; context.beginPath(); context.roundRect(x, y, width, height, 20); context.fill(); context.stroke();
+  context.fillStyle = color; context.font = "700 30px Arial, sans-serif"; context.fillText(`${icon}  ${title}`, x + 22, y + 42);
+  context.fillStyle = "#27272a"; context.font = "21px Arial, sans-serif"; let lineY = y + 78;
+  for (const line of lines) { lineY = wrapCanvasText(context, line, x + 22, lineY, width - 44, 30); if (lineY > y + height - 18) break; }
+}
+
+async function downloadPlanImage(plan: LessonPlanResult, imageSources: string[], meta: PlanExportMeta) {
   const width = 1240;
-  const padding = 80;
+  const height = 1754;
   const canvas = document.createElement("canvas");
   canvas.width = width;
-  canvas.height = Math.max(1754, 620 + plan.sessions.length * 360);
+  canvas.height = height;
   const context = canvas.getContext("2d");
   if (!context) return;
+  const loadedImages = (await Promise.all(imageSources.slice(0, 7).map(source => loadCanvasImage(source).catch(() => null)))).filter((image): image is HTMLImageElement => image !== null);
+  context.fillStyle = "#fffdfa"; context.fillRect(0, 0, width, height); context.strokeStyle = "#fb7185"; context.lineWidth = 3; context.beginPath(); context.roundRect(15, 15, width - 30, height - 30, 28); context.stroke();
+  context.fillStyle = "#fb4f7b"; context.beginPath(); context.roundRect(34, 34, 158, 54, 27); context.fill(); context.fillStyle = "#ffffff"; context.font = "700 28px Arial, sans-serif"; context.fillText("수업제목", 58, 70);
+  context.fillStyle = "#18181b"; context.font = "700 55px Arial, sans-serif"; wrapCanvasText(context, plan.title, 215, 75, 980, 62);
+  context.fillStyle = "#3f3f46"; context.font = "25px Arial, sans-serif"; wrapCanvasText(context, plan.objective, 45, 155, 1150, 34);
 
-  context.fillStyle = "#f8fafc";
-  context.fillRect(0, 0, canvas.width, canvas.height);
-  context.fillStyle = "#2563eb";
-  context.fillRect(0, 0, canvas.width, 22);
-  context.fillStyle = "#172554";
-  context.font = "700 28px Arial, sans-serif";
-  context.fillText("COCO ART ACADEMY", padding, 90);
-  context.font = "700 52px Arial, sans-serif";
-  let y = wrapCanvasText(context, plan.title, padding, 165, width - padding * 2, 66);
-  context.fillStyle = "#475569";
-  context.font = "28px Arial, sans-serif";
-  y = wrapCanvasText(context, plan.objective, padding, y + 12, width - padding * 2, 42) + 34;
+  drawInfoBox(context, 28, 205, 350, 120, "#2563eb", "👥", "대상", [meta.ageGroup || "대상 연령"]);
+  drawInfoBox(context, 28, 340, 350, 120, "#f43f5e", "◷", "차시", [`${plan.sessions.length}차시 (${meta.durationMinutes}분)`]);
+  const firstSession = plan.sessions[0];
+  drawInfoBox(context, 28, 475, 350, 245, "#f59e0b", "◎", "학습 목표", [firstSession?.goal || plan.objective]);
+  drawInfoBox(context, 28, 735, 350, 205, "#16a34a", "🎨", "준비물", [firstSession?.materials || "수업 준비물"]);
+  drawInfoBox(context, 28, 955, 350, 345, "#2563eb", "💡", "수업 흐름", [`1. 도입  ${firstSession?.intro || "작품 관찰"}`, `2. 전개  ${firstSession?.main_activity || "작품 만들기"}`, `3. 마무리  ${firstSession?.wrap_up || "작품 감상"}`]);
+  drawInfoBox(context, 28, 1315, 350, 390, "#8b5cf6", "★", "교사 TIP", [firstSession?.teacher_tips || "학생의 선택과 표현을 격려해주세요.", `확장 활동: ${firstSession?.extra_activity_for_fast_finishers || "완성 후 작품 제목 정하기"}`]);
 
-  for (const session of plan.sessions) {
-    const cardY = y;
-    context.fillStyle = "#ffffff";
-    context.strokeStyle = "#bfdbfe";
-    context.lineWidth = 3;
-    context.beginPath();
-    context.roundRect(padding, cardY, width - padding * 2, 320, 24);
-    context.fill();
-    context.stroke();
-    context.fillStyle = "#2563eb";
-    context.font = "700 30px Arial, sans-serif";
-    context.fillText(`${session.session_number}회차  ${session.session_title}`, padding + 30, cardY + 52);
-    context.fillStyle = "#1e293b";
-    context.font = "24px Arial, sans-serif";
-    let lineY = wrapCanvasText(context, `목표  ${session.goal}`, padding + 30, cardY + 100, width - padding * 2 - 60, 34);
-    lineY = wrapCanvasText(context, `준비물  ${session.materials}`, padding + 30, lineY + 8, width - padding * 2 - 60, 34);
-    wrapCanvasText(context, `활동  ${session.main_activity}`, padding + 30, lineY + 8, width - padding * 2 - 60, 34);
-    y += 350;
-  }
+  context.fillStyle = "#f8efe6"; context.strokeStyle = "#e7c9ad"; context.beginPath(); context.roundRect(400, 205, 810, 610, 24); context.fill(); context.stroke();
+  if (loadedImages[0]) drawCoverImage(context, loadedImages[0], 416, 221, 778, 578, 18);
+  else { context.fillStyle = "#a1a1aa"; context.font = "700 30px Arial, sans-serif"; context.fillText("대표 작품 이미지", 680, 520); }
 
-  context.fillStyle = "#dbeafe";
-  context.beginPath();
-  context.roundRect(padding, y, width - padding * 2, 180, 24);
-  context.fill();
-  context.fillStyle = "#1e3a8a";
-  context.font = "700 26px Arial, sans-serif";
-  context.fillText("학부모 안내", padding + 30, y + 45);
-  context.fillStyle = "#334155";
-  context.font = "23px Arial, sans-serif";
-  wrapCanvasText(context, plan.parent_summary, padding + 30, y + 85, width - padding * 2 - 60, 34);
+  context.fillStyle = "#c49a6c"; context.beginPath(); context.roundRect(650, 830, 310, 52, 26); context.fill(); context.fillStyle = "#ffffff"; context.font = "700 29px Arial, sans-serif"; context.fillText("만드는 순서", 730, 866);
+  const stepTexts = [firstSession?.intro, firstSession?.main_activity, firstSession?.wrap_up, firstSession?.student_choice_elements, firstSession?.support_for_struggling_students, firstSession?.extra_activity_for_fast_finishers].filter(Boolean) as string[];
+  for (let index = 0; index < 6; index++) { const column=index%3; const row=Math.floor(index/3); const x=410+column*265; const y=900+row*330; context.fillStyle="#ffffff";context.strokeStyle="#ead8c5";context.beginPath();context.roundRect(x,y,245,300,18);context.fill();context.stroke();const stepImage=loadedImages[index+1]||loadedImages[0];if(stepImage)drawCoverImage(context,stepImage,x+10,y+10,225,180,12);context.fillStyle="#fb4f7b";context.beginPath();context.arc(x+30,y+30,24,0,Math.PI*2);context.fill();context.fillStyle="#ffffff";context.font="700 24px Arial, sans-serif";context.fillText(String(index+1),x+23,y+39);context.fillStyle="#27272a";context.font="19px Arial, sans-serif";wrapCanvasText(context,stepTexts[index]||`${index+1}단계 작품 과정을 진행해요.`,x+14,y+215,217,26); }
+  context.fillStyle="#fff1f2";context.strokeStyle="#fda4af";context.beginPath();context.roundRect(410,1575,790,130,20);context.fill();context.stroke();context.fillStyle="#be123c";context.font="700 27px Arial, sans-serif";context.fillText("핵심 포인트!",435,1615);context.fillStyle="#3f3f46";context.font="20px Arial, sans-serif";wrapCanvasText(context,firstSession?.student_choice_elements||plan.parent_summary,435,1650,735,27);
 
   const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
   if (!blob) throw new Error("PNG image creation failed");
@@ -341,6 +348,8 @@ export default function Home() {
   const [stage, setStage] = useState<Stage | null>(null);
   const [generationError, setGenerationError] = useState("");
   const [generatedPlan, setGeneratedPlan] = useState<LessonPlanResult | null>(null);
+  const [generatedPlanImages, setGeneratedPlanImages] = useState<string[]>([]);
+  const [planExportMeta, setPlanExportMeta] = useState<PlanExportMeta>({ ageGroup: "", subject: "", durationMinutes: 60 });
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied">("idle");
   const [imageExportStatus, setImageExportStatus] = useState<"idle" | "working">("idle");
   const [savedPlans, setSavedPlans] = useState<SavedPlanRow[]>([]);
@@ -353,7 +362,7 @@ export default function Home() {
   const loadSavedPlans = async () => {
     const { data, error } = await supabase
       .from("lesson_plans")
-      .select("id,title,target_age,class_type,generated_plan,created_at")
+      .select("id,title,target_age,class_type,class_minutes,session_count,generated_plan,created_at")
       .eq("status", "generated")
       .order("created_at", { ascending: false })
       .limit(30);
@@ -371,10 +380,14 @@ export default function Home() {
       .some((value) => value!.toLocaleLowerCase("ko").includes(savedPlanSearch.trim().toLocaleLowerCase("ko"))),
   );
 
-  const openSavedPlan = (plan: SavedPlanRow) => {
+  const openSavedPlan = async (plan: SavedPlanRow) => {
     if (!plan.generated_plan) return;
     setGeneratedPlan(plan.generated_plan);
+    setPlanExportMeta({ ageGroup: plan.target_age || "", subject: plan.class_type || "", durationMinutes: plan.class_minutes || 60 });
     setSelectedSavedPlanId(plan.id);
+    const { data: imageRows } = await supabase.from("lesson_plan_images").select("storage_path,image_order").eq("lesson_plan_id",plan.id).order("image_order");
+    const paths=(imageRows??[]).map(row=>row.storage_path).filter((path):path is string=>Boolean(path));
+    if(paths.length){const {data:signed}=await supabase.storage.from("lesson-plan-images").createSignedUrls(paths,3600);setGeneratedPlanImages((signed??[]).map(item=>item.signedUrl).filter((url):url is string=>Boolean(url)))}else setGeneratedPlanImages([]);
     window.setTimeout(() => document.getElementById("generated-plan")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   };
 
@@ -389,6 +402,7 @@ export default function Home() {
       if (selectedSavedPlanId === plan.id) {
         setSelectedSavedPlanId(null);
         setGeneratedPlan(null);
+        setGeneratedPlanImages([]);
       }
     }
     setDeletingSavedPlanId(null);
@@ -615,6 +629,8 @@ export default function Home() {
       if (saveError) throw new SaveError("lesson_plans final update failed", saveError);
 
       setGeneratedPlan(finalResult);
+      setGeneratedPlanImages(referenceImages.map(image=>image.previewUrl));
+      setPlanExportMeta({ ageGroup, subject, durationMinutes: parseDurationMinutes(duration) });
       setSelectedSavedPlanId(lessonPlanId);
       await loadSavedPlans();
     } catch (err) {
@@ -689,7 +705,7 @@ export default function Home() {
     setImageExportStatus("working");
     setGenerationError("");
     try {
-      await downloadPlanImage(generatedPlan);
+      await downloadPlanImage(generatedPlan, generatedPlanImages, planExportMeta);
     } catch (error) {
       if ((error as DOMException)?.name !== "AbortError") {
         setGenerationError("이미지 저장 창을 열지 못했습니다. 다시 시도해주세요.");
@@ -744,13 +760,13 @@ export default function Home() {
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               {visibleSavedPlans.map((plan) => (
                 <article key={plan.id} className={`rounded-xl border p-4 transition ${selectedSavedPlanId === plan.id ? "border-blue-400 bg-blue-50 ring-2 ring-blue-100" : "border-zinc-200"}`}>
-                  <button type="button" onClick={() => openSavedPlan(plan)} className="w-full text-left disabled:cursor-not-allowed disabled:opacity-50" disabled={!plan.generated_plan}>
+                  <button type="button" onClick={() => void openSavedPlan(plan)} className="w-full text-left disabled:cursor-not-allowed disabled:opacity-50" disabled={!plan.generated_plan}>
                     <span className="line-clamp-2 text-sm font-bold text-zinc-900">{plan.title || "제목 없는 계획안"}</span>
                     <span className="mt-2 block text-xs text-zinc-500">{plan.target_age || "연령 미입력"} · {plan.class_type || "유형 미입력"}</span>
                     <span className="mt-1 block text-xs text-zinc-400">{new Date(plan.created_at).toLocaleDateString("ko-KR")}</span>
                   </button>
                   <div className="mt-3 flex items-center justify-between border-t border-zinc-200/80 pt-3">
-                    <button type="button" onClick={() => openSavedPlan(plan)} disabled={!plan.generated_plan} className="text-xs font-bold text-blue-600 disabled:text-zinc-400">열기</button>
+                    <button type="button" onClick={() => void openSavedPlan(plan)} disabled={!plan.generated_plan} className="text-xs font-bold text-blue-600 disabled:text-zinc-400">열기</button>
                     <button type="button" onClick={() => void deleteSavedPlan(plan)} disabled={deletingSavedPlanId === plan.id} className="text-xs font-bold text-red-600 disabled:text-zinc-400">{deletingSavedPlanId === plan.id ? "삭제 중..." : "삭제"}</button>
                   </div>
                 </article>
@@ -762,10 +778,10 @@ export default function Home() {
           {/* 1. 참고 이미지 업로드 */}
           <section className="flex flex-col gap-2">
             <h2 className="text-lg font-semibold text-zinc-900">
-              ① 참고 이미지 업로드
+              ① 작품·과정 이미지 업로드
             </h2>
             <p className="text-sm text-zinc-500">
-              참고 작품 이미지를 최대 10장까지 업로드
+              첫 사진은 대표 작품, 2번부터는 만드는 순서대로 올려주세요. 최대 10장
             </p>
             <input
               ref={fileInputRef}
