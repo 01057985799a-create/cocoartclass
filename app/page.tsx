@@ -76,6 +76,15 @@ type LessonPlanResult = {
   title_examples: string[];
 };
 
+type SavedPlanRow = {
+  id: string;
+  title: string | null;
+  target_age: string | null;
+  class_type: string | null;
+  generated_plan: LessonPlanResult | null;
+  created_at: string;
+};
+
 class UploadError extends Error {
   details?: unknown;
   constructor(message: string, details?: unknown) {
@@ -198,6 +207,90 @@ function buildPlainTextSummary(plan: LessonPlanResult): string {
   return lines.join("\n");
 }
 
+function wrapCanvasText(
+  context: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  maxWidth: number,
+  lineHeight: number
+): number {
+  const words = text.split(/\s+/);
+  let line = "";
+  let cursorY = y;
+  for (const word of words) {
+    const test = line ? `${line} ${word}` : word;
+    if (context.measureText(test).width > maxWidth && line) {
+      context.fillText(line, x, cursorY);
+      line = word;
+      cursorY += lineHeight;
+    } else {
+      line = test;
+    }
+  }
+  if (line) context.fillText(line, x, cursorY);
+  return cursorY + lineHeight;
+}
+
+function downloadPlanImage(plan: LessonPlanResult) {
+  const width = 1240;
+  const padding = 80;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = Math.max(1754, 620 + plan.sessions.length * 360);
+  const context = canvas.getContext("2d");
+  if (!context) return;
+
+  context.fillStyle = "#f8fafc";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = "#2563eb";
+  context.fillRect(0, 0, canvas.width, 22);
+  context.fillStyle = "#172554";
+  context.font = "700 28px Arial, sans-serif";
+  context.fillText("COCO ART ACADEMY", padding, 90);
+  context.font = "700 52px Arial, sans-serif";
+  let y = wrapCanvasText(context, plan.title, padding, 165, width - padding * 2, 66);
+  context.fillStyle = "#475569";
+  context.font = "28px Arial, sans-serif";
+  y = wrapCanvasText(context, plan.objective, padding, y + 12, width - padding * 2, 42) + 34;
+
+  for (const session of plan.sessions) {
+    const cardY = y;
+    context.fillStyle = "#ffffff";
+    context.strokeStyle = "#bfdbfe";
+    context.lineWidth = 3;
+    context.beginPath();
+    context.roundRect(padding, cardY, width - padding * 2, 320, 24);
+    context.fill();
+    context.stroke();
+    context.fillStyle = "#2563eb";
+    context.font = "700 30px Arial, sans-serif";
+    context.fillText(`${session.session_number}회차  ${session.session_title}`, padding + 30, cardY + 52);
+    context.fillStyle = "#1e293b";
+    context.font = "24px Arial, sans-serif";
+    let lineY = wrapCanvasText(context, `목표  ${session.goal}`, padding + 30, cardY + 100, width - padding * 2 - 60, 34);
+    lineY = wrapCanvasText(context, `준비물  ${session.materials}`, padding + 30, lineY + 8, width - padding * 2 - 60, 34);
+    wrapCanvasText(context, `활동  ${session.main_activity}`, padding + 30, lineY + 8, width - padding * 2 - 60, 34);
+    y += 350;
+  }
+
+  context.fillStyle = "#dbeafe";
+  context.beginPath();
+  context.roundRect(padding, y, width - padding * 2, 180, 24);
+  context.fill();
+  context.fillStyle = "#1e3a8a";
+  context.font = "700 26px Arial, sans-serif";
+  context.fillText("학부모 안내", padding + 30, y + 45);
+  context.fillStyle = "#334155";
+  context.font = "23px Arial, sans-serif";
+  wrapCanvasText(context, plan.parent_summary, padding + 30, y + 85, width - padding * 2 - 60, 34);
+
+  const link = document.createElement("a");
+  link.download = `${plan.title.replace(/[\\/:*?"<>|]/g, "_") || "수업계획안"}.png`;
+  link.href = canvas.toDataURL("image/png");
+  link.click();
+}
+
 export default function Home() {
   const [ageGroup, setAgeGroup] = useState("");
   const [subject, setSubject] = useState("");
@@ -214,6 +307,24 @@ export default function Home() {
   const [generationError, setGenerationError] = useState("");
   const [generatedPlan, setGeneratedPlan] = useState<LessonPlanResult | null>(null);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied">("idle");
+  const [savedPlans, setSavedPlans] = useState<SavedPlanRow[]>([]);
+  const [savedPlansLoading, setSavedPlansLoading] = useState(true);
+
+  const loadSavedPlans = async () => {
+    const { data, error } = await supabase
+      .from("lesson_plans")
+      .select("id,title,target_age,class_type,generated_plan,created_at")
+      .eq("status", "generated")
+      .order("created_at", { ascending: false })
+      .limit(30);
+    if (!error) setSavedPlans((data ?? []) as SavedPlanRow[]);
+    setSavedPlansLoading(false);
+  };
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => void loadSavedPlans(), 0);
+    return () => window.clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -431,6 +542,7 @@ export default function Home() {
       if (saveError) throw new SaveError("lesson_plans final update failed", saveError);
 
       setGeneratedPlan(finalResult);
+      await loadSavedPlans();
     } catch (err) {
       console.error("=== FULL ERROR ===");
       console.error(err);
@@ -510,6 +622,37 @@ export default function Home() {
       </header>
 
       <main className="mt-10 w-full max-w-2xl rounded-2xl bg-white p-6 shadow-lg ring-1 ring-zinc-100 sm:p-10">
+        <section className="mb-8 border-b border-zinc-100 pb-8">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-bold text-zinc-900">저장된 수업 계획안</h2>
+              <p className="mt-1 text-sm text-zinc-500">이전에 만든 계획안을 다시 열고 이미지로 저장할 수 있습니다.</p>
+            </div>
+            <span className="rounded-full bg-blue-50 px-3 py-1 text-sm font-bold text-blue-600">
+              {savedPlans.length}개
+            </span>
+          </div>
+          {savedPlansLoading ? (
+            <p className="mt-4 text-sm text-zinc-400">불러오는 중...</p>
+          ) : savedPlans.length === 0 ? (
+            <p className="mt-4 rounded-xl bg-zinc-50 p-4 text-sm text-zinc-500">아직 저장된 계획안이 없습니다.</p>
+          ) : (
+            <div className="mt-4 flex gap-3 overflow-x-auto pb-2">
+              {savedPlans.map((plan) => (
+                <button
+                  key={plan.id}
+                  type="button"
+                  onClick={() => plan.generated_plan && setGeneratedPlan(plan.generated_plan)}
+                  className="min-w-56 rounded-xl border border-zinc-200 p-4 text-left transition hover:border-blue-300 hover:bg-blue-50"
+                >
+                  <span className="line-clamp-2 text-sm font-bold text-zinc-900">{plan.title || "제목 없는 계획안"}</span>
+                  <span className="mt-2 block text-xs text-zinc-500">{plan.target_age} · {plan.class_type}</span>
+                  <span className="mt-1 block text-xs text-zinc-400">{new Date(plan.created_at).toLocaleDateString("ko-KR")}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
         <div className="flex flex-col gap-8">
           {/* 1. 참고 이미지 업로드 */}
           <section className="flex flex-col gap-2">
@@ -689,13 +832,22 @@ export default function Home() {
                 <h2 className="text-lg font-semibold text-zinc-900">
                   생성된 수업 계획안
                 </h2>
-                <button
-                  type="button"
-                  onClick={handleCopyAll}
-                  className="rounded-lg border border-blue-200 px-3 py-1.5 text-sm font-medium text-blue-600 transition-colors hover:bg-blue-50"
-                >
-                  {copyStatus === "copied" ? "복사됨!" : "전체 복사"}
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => downloadPlanImage(generatedPlan)}
+                    className="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-bold text-white transition-colors hover:bg-blue-700"
+                  >
+                    이미지 계획안 PNG
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCopyAll}
+                    className="rounded-lg border border-blue-200 px-3 py-1.5 text-sm font-medium text-blue-600 transition-colors hover:bg-blue-50"
+                  >
+                    {copyStatus === "copied" ? "복사됨!" : "전체 복사"}
+                  </button>
+                </div>
               </div>
 
               <div className="flex flex-col gap-1">
