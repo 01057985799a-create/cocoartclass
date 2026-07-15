@@ -6,6 +6,26 @@ create table if not exists public.academies (
   created_at timestamptz not null default now()
 );
 
+alter table public.academies
+  add column if not exists code text,
+  add column if not exists active boolean not null default true;
+
+update public.academies
+set code='ACADEMY-' || upper(substr(id::text,1,8))
+where code is null;
+
+do $$
+begin
+  if not exists(select 1 from public.academies where code='COCO') then
+    update public.academies set code='COCO'
+    where id=(select id from public.academies order by created_at limit 1);
+  end if;
+end;
+$$;
+
+alter table public.academies alter column code set not null;
+create unique index if not exists academies_code_key on public.academies(code);
+
 insert into public.academies(name, code)
 values ('코코미술학원', 'COCO')
 on conflict(code) do nothing;
