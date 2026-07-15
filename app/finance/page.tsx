@@ -2,6 +2,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { downloadTuitionCertificate } from "@/lib/tuitionCertificatePdf";
+import { OwnerOnly } from "@/app/components/AcademyAccess";
 
 type Tab = "ledger" | "year" | "overdue";
 type Student = { id: string; name: string; active: boolean; created_at: string; updated_at: string };
@@ -14,7 +15,7 @@ const today = () => new Date().toLocaleDateString("sv-SE");
 const emptyForm: TransactionForm = { transaction_date: today(), transaction_type: "expense", category: "재료비", description: "", payment_method: "card", amount: "" };
 const categories = { income: ["원비", "특강비", "재료비 수입", "기타 수입"], expense: ["재료비", "임대료", "공과금", "차량비", "인건비", "기타 지출"] };
 
-export default function FinancePage() {
+function FinancePageContent() {
   const [tab, setTab] = useState<Tab>("ledger");
   const [month, setMonth] = useState(today().slice(0, 7));
   const [students, setStudents] = useState<Student[]>([]);
@@ -126,3 +127,5 @@ export default function FinancePage() {
     </>}
   </div>{modal && <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:p-4"><div className="w-full max-w-lg rounded-t-3xl bg-white p-6 sm:rounded-3xl"><div className="mb-5 flex items-center justify-between"><h2 className="text-xl font-black">수입·지출 등록</h2><button onClick={() => setModal(false)} className="rounded-full bg-zinc-100 px-3 py-1.5 text-sm">닫기</button></div><form onSubmit={saveTransaction} className="grid gap-4"><div className="grid grid-cols-2 gap-3"><label className="grid gap-1 text-sm font-bold">날짜<input required type="date" value={form.transaction_date} onChange={(e) => setForm({ ...form, transaction_date: e.target.value })} className="rounded-xl border px-3 py-3 font-normal" /></label><label className="grid gap-1 text-sm font-bold">구분<select value={form.transaction_type} onChange={(e) => { const type = e.target.value as "income" | "expense"; setForm({ ...form, transaction_type: type, category: categories[type][0] }); }} className="rounded-xl border bg-white px-3 py-3 font-normal"><option value="income">수입</option><option value="expense">지출</option></select></label></div><label className="grid gap-1 text-sm font-bold">항목<select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })} className="rounded-xl border bg-white px-3 py-3 font-normal">{categories[form.transaction_type].map((category) => <option key={category}>{category}</option>)}</select></label><label className="grid gap-1 text-sm font-bold">내용<input required value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} className="rounded-xl border px-4 py-3 font-normal" /></label><div className="grid grid-cols-2 gap-3"><label className="grid gap-1 text-sm font-bold">결제 방법<select value={form.payment_method} onChange={(e) => setForm({ ...form, payment_method: e.target.value })} className="rounded-xl border bg-white px-3 py-3 font-normal"><option value="card">카드</option><option value="cash">현금</option><option value="transfer">계좌이체</option><option value="other">기타</option></select></label><label className="grid gap-1 text-sm font-bold">금액<input required type="number" min="1" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} className="rounded-xl border px-4 py-3 text-right font-normal" /></label></div><button disabled={saving} className="rounded-xl bg-rose-700 py-4 font-bold text-white disabled:opacity-50">{saving ? "저장 중..." : "저장"}</button></form></div></div>}</main>;
 }
+
+export default function FinancePage() { return <OwnerOnly><FinancePageContent /></OwnerOnly>; }

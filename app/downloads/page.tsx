@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { downloadArtworkPdf } from "@/lib/artworkPdf";
 import { supabase } from "@/lib/supabase";
+import { OwnerOnly } from "@/app/components/AcademyAccess";
 
 type Student = {
   id: string;
@@ -116,7 +117,7 @@ const paymentLabel: Record<string, string> = {
   other: "기타",
 };
 
-export default function DownloadsPage() {
+function DownloadsPageContent() {
   const [month, setMonth] = useState(currentMonth);
   const [students, setStudents] = useState<Student[]>([]);
   const [classes, setClasses] = useState<ClassRow[]>([]);
@@ -586,3 +587,5 @@ export default function DownloadsPage() {
     </main>
   );
 }
+
+export default function DownloadsPage() { return <OwnerOnly><DownloadsPageContent /></OwnerOnly>; }
